@@ -1,0 +1,36 @@
+globals:
+	debug: True
+	project_home:
+
+
+datastores:
+	staging:
+		foo
+	core:
+		bar
+	output:
+		bazz
+
+pipelines:
+	amc_apollo:
+		extract:
+			service_name:
+			service_config: abc
+			deploy_formula:
+		transform:			
+			decode_receipts:
+				map_config: ...
+				map_name:
+				
+		load:
+			service_name:
+			loader:
+			service_config: def
+			deploy_formula:
+		
+	
+	
+		
+
+
+services:

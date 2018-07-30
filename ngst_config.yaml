@@ -1,0 +1,12 @@
+
+globals:
+  project_home: $APOLLO_HOME
+  service_module: apollo_services
+
+services:
+
+
+targets:
+  couchbase:
+    checkpoint_frequency:
+
