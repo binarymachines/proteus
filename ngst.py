@@ -26,8 +26,8 @@ import logging
 
 
 class RecordStore(object):
-    def __init__(self, service_object_registry, checkpoint_frequency=1, **kwargs):
-        self.checkpoint_frequency = checkpoint_frequency
+    def __init__(self, service_object_registry, checkpoint_interval=1, **kwargs):
+        self.checkpoint_frequency = checkpoint_interval
         self.record_buffer = []
 
 
@@ -73,7 +73,7 @@ class FileStore(RecordStore):
 def main(args):
     print(common.jsonpretty(args))
 
-    default_record_store = FileStore('althea_records.txt', common.ServiceObjectRegistry({}))
+    default_record_store = FileStore('tarif_records.txt', common.ServiceObjectRegistry({}))
 
     limit = -1
     if args.get('--limit') is not None:
