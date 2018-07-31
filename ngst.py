@@ -17,6 +17,7 @@ import docopt
 from docopt import docopt as docopt_func
 from docopt import DocoptExit
 import os, sys
+from contextlib import ContextDecorator
 import csv
 import json
 from snap import snap, common
@@ -25,20 +26,20 @@ import yaml
 import logging
 
 
+
 class RecordStore(object):
-    def __init__(self, service_object_registry, checkpoint_interval=1, **kwargs):
-        self.checkpoint_frequency = checkpoint_interval
+    def __init__(self, service_object_registry, **kwargs):        
         self.record_buffer = []
+        self.checkpoint_mgr = None
 
 
-    @property
-    def write_counter(self):
-        return len(self.record_buffer)
-
-
-    def writethrough(self, record, **kwargs):
+    def writethrough(self, **kwargs):
         '''implement in subclass'''
         pass
+
+
+    def register_checkpoint(self, checkpoint_instance):
+        self.checkpoint_mgr = checkpoint_instance
 
 
     def checkpoint(self, **kwargs):        
@@ -49,13 +50,45 @@ class RecordStore(object):
 
     def write(self, record, **kwargs):
         try:
-            self.record_buffer.append(record)            
-            if self.write_counter == self.checkpoint_frequency:
-                self.checkpoint(**kwargs)
+            self.record_buffer.append(record) 
+            if self.checkpoint_mgr:
+                self.checkpoint_mgr.register_write()          
         except Exception as err: 
             raise err
 
-                
+
+class checkpoint(ContextDecorator):
+    def __init__(self, record_store, checkpoint_interval):
+        print('creating an instance of checkpoint with interval of %d...' % checkpoint_interval)
+        self.interval = checkpoint_interval
+        self.num_writes = 0
+        self.record_store = record_store
+        self.record_store.register_checkpoint(self)
+
+
+    def increment_write_count(self):
+        self.num_writes += 1
+
+
+    def reset(self):
+        self.num_writes = 0
+
+
+    def register_write(self):
+        self.num_writes += 1
+        if self.num_writes == self.interval:
+            self.record_store.writethrough()
+            self.reset()
+
+
+    def __enter__(self):        
+        return self
+
+
+    def __exit__(self, *exc):
+        self.record_store.writethrough()
+        return False
+
 
 class FileStore(RecordStore):
     def __init__(self, filename, service_object_registry):

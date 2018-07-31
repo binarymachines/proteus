@@ -2,11 +2,23 @@
 globals:
   project_home: $APOLLO_HOME
   service_module: apollo_services
+  datastore_module: apollo_datastores
+
 
 services:
 
+datastores:
+  test_ds:
+    class: FileDatastore
+    init_params:
+      - name: filename
+        value: foobar.txt
+
+      - name: fail_if_not_found
+        value: True
 
 targets:
-  couchbase:
-    checkpoint_frequency:
+  test: 
+    datastore: test_ds
+    checkpoint_frequency: 1
 

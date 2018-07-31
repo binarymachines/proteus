@@ -1,32 +1,55 @@
 #!/usr/bin/env python
+ 
+'''Usage:   checkpoint_console
+
+
+'''
+
 
 from contextlib import ContextDecorator
+from snap import common
+import yaml
+import docopt
 
 
-class RecordStore(object):
-    def __init__(self, service_object_registry, **kwargs):        
-        self.record_buffer = []
-        self.checkpoint_mgr = None
+class DataStore(object):
+    def __init__(self, service_object_registry, **kwargs):
+        self.service_object_registry = service_object_registry
 
 
-    def writethrough(self, record, **kwargs):
-        '''implement in subclass'''
+    def write(self, recordset, **kwargs):
+        '''write each record in <recordset> to the underlying storage medium.
+        Implement in subclass.
+        '''
         pass
+
+
+class RecordBuffer(object):
+    def __init__(self, datastore, **kwargs):        
+        self.data = []
+        self.checkpoint_mgr = None        
+        self.datastore = datastore
+
+
+    def writethrough(self, **kwargs):
+        '''write the contents of the record buffer out to the underlying datastore.
+        Implement in subclass.
+        '''
+        self.datastore.write(self.data, **kwargs)
 
 
     def register_checkpoint(self, checkpoint_instance):
         self.checkpoint_mgr = checkpoint_instance
 
 
-    def checkpoint(self, **kwargs):        
-        for record in self.record_buffer:
-            self.writethrough(record, **kwargs)
-        self.record_buffer = []
+    def flush(self, **kwargs):        
+        self.writethrough(**kwargs)
+        self.data = []
 
 
     def write(self, record, **kwargs):
         try:
-            self.record_buffer.append(record) 
+            self.data.append(record) 
             if self.checkpoint_mgr:
                 self.checkpoint_mgr.register_write()          
         except Exception as err: 
@@ -34,68 +57,94 @@ class RecordStore(object):
 
 
 class checkpoint(ContextDecorator):
-    def __init__(self, record_store, checkpoint_interval):
-        print('creating an instance of checkpoint with interval of %d...' % checkpoint_interval)
+    def __init__(self, record_buffer, **kwargs):
+        checkpoint_interval = int(kwargs.get('interval') or 1)
+
         self.interval = checkpoint_interval
-        self.num_writes = 0
-        self.record_store = record_store
-        self.record_store.register_checkpoint(self)
+        self._outstanding_writes = 0
+        self._total_writes = 0
+        self.record_buffer = record_buffer
+        self.record_buffer.register_checkpoint(self)
+
+
+    @property
+    def total_writes(self):
+        return self._total_writes
+
+    @property
+    def writes_since_last_reset(self):
+        return self._outstanding_writes
+
 
     def increment_write_count(self):
-        self.num_writes += 1
+        self._outstanding_writes += 1
+        self._total_writes += 1
 
 
     def reset(self):
-        self.num_writes = 0
+        self.outstanding_writes = 0
 
 
     def register_write(self):
-        self.num_writes += 1
-        if self.num_writes == self.interval:
-            self.record_store.writethrough()
+        self.increment_write_count()
+        if self.writes_since_last_reset == self.interval:
+            self.record_buffer.flush()
             self.reset()
 
 
     def __enter__(self):
-        print('### DOING THE THING...')
         return self
 
+
     def __exit__(self, *exc):
-        self.record_store.writethrough()
+        self.record_buffer.writethrough()
         return False
 
 
-class FileStore(RecordStore):
-    def __init__(self, filename):
-        RecordStore.__init__(self, None)
-        self.filename = filename
+def load_datastore(self, name, transform_config, service_object_registry):
+    ds_module_name = transform_config['globals']['datastore_module']
+
+    if not transform_config['datastores'].get(name):
+        raise DatastoreNotRegisteredUnderName(name)
+
+    datastore_class_name = transform_config['datastores'][name]['class']
+    klass = common.load_class(datasource_class_name, src_module_name)
+    
+    init_params = {}
+    for param in transform_config['datastores'][name]['init_params']:
+        init_params[param['name']] = param['value']
+        
+    return klass(service_object_registry, **init_params)
 
 
-    def writethrough(self, **kwargs):
+class FileStore(DataStore):
+    def __init__(self, service_object_registry, **kwargs):
+        DataStore.__init__(self, service_object_registry, **kwargs)
+        kwreader = common.KeywordArgReader('filename')
+        kwreader.read(**kwargs)
+        self.filename = kwreader.get_value('filename')        
+
+
+    def write(self, records, **kwargs):
         print('>>> Executing writethrough...')
         with open(self.filename, 'a') as f:
-            for record in self.record_buffer:
+            for record in records:
                 f.write(record)
-                f.write('\n')
-            self.record_buffer = []
+                f.write('\n')            
 
 
-def main():
+def main(args):
+    registry = common.ServiceObjectRegistry({})
+    fs = FileStore(registry, filename='dexcrazy.txt')
+    buffer = RecordBuffer(fs)
 
-    record_store_instance = FileStore('dexcrazy.txt')
-    
-    with checkpoint(record_store_instance, 4) as cp:
-        print(cp)
-        for i in range(8):
-            record_store_instance.write('hello world')
+    with checkpoint(buffer, interval=4) as cpt:
+        for i in range(9):
+            buffer.write('hello world')
         
-
-    print(cp)
-    print('buffer contents:')
-    print('\n'.join([r for r in record_store_instance.record_buffer]))
-
-    print('checkpoint instance records %d calls to RecordStore.write()' % cp.num_writes)
+    print('checkpoint instance recorded %d calls to RecordStore.write()' % cpt.total_writes)
 
 
 if __name__ == '__main__':
-    main()
+    args = docopt.docopt(__doc__)
+    main(args)
