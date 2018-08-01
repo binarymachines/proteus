@@ -117,6 +117,17 @@ def load_datastore(self, name, transform_config, service_object_registry):
     return klass(service_object_registry, **init_params)
 
 
+class TestStore(DataStore):
+    def __init__(self, service_object_registry, **kwargs):
+        DataStore.__init__(self, service_object_registry, **kwargs)
+        self.num_writethrough_events = 0
+        self.total_records_received = 0
+
+    def write(self, records, **kwargs):
+        self.num_writethrough_events += 1
+        self.total_records_received += len(records)
+
+
 class FileStore(DataStore):
     def __init__(self, service_object_registry, **kwargs):
         DataStore.__init__(self, service_object_registry, **kwargs)
@@ -125,8 +136,7 @@ class FileStore(DataStore):
         self.filename = kwreader.get_value('filename')        
 
 
-    def write(self, records, **kwargs):
-        print('>>> Executing writethrough...')
+    def write(self, records, **kwargs):        
         with open(self.filename, 'a') as f:
             for record in records:
                 f.write(record)
