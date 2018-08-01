@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 '''Usage:
-            ngst --config <configfile> --target <target_datastore> [--datafile <datafile>] [--limit=<max_records>]           
+            ngst --config <configfile> --target <ingest_target> [--datafile <datafile>] [--limit=<max_records>]           
             ngst --config <configfile> --list-targets
 
    Options:            
@@ -13,44 +13,61 @@
 #
 
 
-import docopt
-from docopt import docopt as docopt_func
-from docopt import DocoptExit
 import os, sys
 from contextlib import ContextDecorator
 import csv
 import json
+import logging
+from collections import namedtuple
+
+import docopt
+from docopt import docopt as docopt_func
+from docopt import DocoptExit
 from snap import snap, common
 import datamap as dmap
 import yaml
-import logging
 
 
 
-class RecordStore(object):
-    def __init__(self, service_object_registry, **kwargs):        
-        self.record_buffer = []
-        self.checkpoint_mgr = None
+
+class DataStore(object):
+    def __init__(self, service_object_registry, **kwargs):
+        self.service_object_registry = service_object_registry
+
+
+    def write(self, recordset, **kwargs):
+        '''write each record in <recordset> to the underlying storage medium.
+        Implement in subclass.
+        '''
+        pass
+
+
+class RecordBuffer(object):
+    def __init__(self, datastore, **kwargs):        
+        self.data = []
+        self.checkpoint_mgr = None        
+        self.datastore = datastore
 
 
     def writethrough(self, **kwargs):
-        '''implement in subclass'''
-        pass
+        '''write the contents of the record buffer out to the underlying datastore.
+        Implement in subclass.
+        '''
+        self.datastore.write(self.data, **kwargs)
 
 
     def register_checkpoint(self, checkpoint_instance):
         self.checkpoint_mgr = checkpoint_instance
 
 
-    def checkpoint(self, **kwargs):        
-        for record in self.record_buffer:
-            self.writethrough(record, **kwargs)
-        self.record_buffer = []
+    def flush(self, **kwargs):        
+        self.writethrough(**kwargs)
+        self.data = []
 
 
     def write(self, record, **kwargs):
         try:
-            self.record_buffer.append(record) 
+            self.data.append(record) 
             if self.checkpoint_mgr:
                 self.checkpoint_mgr.register_write()          
         except Exception as err: 
@@ -58,85 +75,151 @@ class RecordStore(object):
 
 
 class checkpoint(ContextDecorator):
-    def __init__(self, record_store, checkpoint_interval):
-        print('creating an instance of checkpoint with interval of %d...' % checkpoint_interval)
+    def __init__(self, record_buffer, **kwargs):
+        checkpoint_interval = int(kwargs.get('interval') or 1)
+
         self.interval = checkpoint_interval
-        self.num_writes = 0
-        self.record_store = record_store
-        self.record_store.register_checkpoint(self)
+        self._outstanding_writes = 0
+        self._total_writes = 0
+        self.record_buffer = record_buffer
+        self.record_buffer.register_checkpoint(self)
+
+
+    @property
+    def total_writes(self):
+        return self._total_writes
+
+    @property
+    def writes_since_last_reset(self):
+        return self._outstanding_writes
 
 
     def increment_write_count(self):
-        self.num_writes += 1
+        self._outstanding_writes += 1
+        self._total_writes += 1
 
 
     def reset(self):
-        self.num_writes = 0
+        self.outstanding_writes = 0
 
 
     def register_write(self):
-        self.num_writes += 1
-        if self.num_writes == self.interval:
-            self.record_store.writethrough()
+        self.increment_write_count()
+        if self.writes_since_last_reset == self.interval:
+            self.record_buffer.flush()
             self.reset()
 
 
-    def __enter__(self):        
+    def __enter__(self):
         return self
 
 
     def __exit__(self, *exc):
-        self.record_store.writethrough()
+        self.record_buffer.writethrough()
         return False
 
 
-class FileStore(RecordStore):
-    def __init__(self, filename, service_object_registry):
-        RecordStore.__init__(self, service_object_registry)
-        self.filename = filename
+def initialize_datastores(transform_config, service_object_registry):
+    datastores = {}
+    ds_module_name = transform_config['globals']['datastore_module']
+
+    if not len(transform_config['datastores']):
+        return datastores        
+
+    for datastore_name in transform_config['datastores']:
+        datastore_class_name = transform_config['datastores'][datastore_name]['class']
+        klass = common.load_class(datastore_class_name, ds_module_name)
+    
+        init_params = {}
+        for param in transform_config['datastores'][datastore_name]['init_params']:
+            init_params[param['name']] = param['value']
+        
+        datastore_instance = klass(service_object_registry, **init_params)
+        datastores[datastore_name] = datastore_instance
+    return datastores
 
 
-    def writethrough(self, record, **kwargs):
-        with open(self.filename, 'a') as f:
-            f.write(record)
-            f.write('\n')
+class DatastoreRegistry(object):
+    def __init__(self, datastore_dictionary):
+        self.data = datastore_dictionary
 
+    def lookup(self, datastore_name):
+        if not self.data.get(datastore_name):
+            raise NoSuchDatastore(datastore_name)
+        return self.data[datastore_name]
+
+    def has_datastore(self, datastore_name):
+        return True if self.data.get(datastore_name) else False
+
+
+IngestTarget = namedtuple('IngestTarget', 'datastore_name checkpoint_interval')
+
+
+def load_ingest_targets(yaml_config, datastore_registry):
+    targets = {}
+    for target_name in yaml_config['ingest_targets']:
+        datastore = yaml_config['ingest_targets'][target_name]['datastore']
+        interval = yaml_config['ingest_targets'][target_name]['checkpoint_interval']
+
+        # verify; this will raise an exception if an invalid datastore is specified
+        if not datastore_registry.has_datastore(datastore):
+            raise Exception('The ingest target "%s" specifies a nonexistent datastore: "%s". Please check your config file.' 
+                            % (target_name, datastore))
+        targets[target_name] = IngestTarget(datastore_name=datastore, checkpoint_interval=interval)
+    return targets
 
 
 def main(args):
     print(common.jsonpretty(args))
 
-    default_record_store = FileStore('tarif_records.txt', common.ServiceObjectRegistry({}))
+    config_filename = args['<configfile>']
+    yaml_config = common.read_config_file(config_filename)
+    service_object_registry = common.ServiceObjectRegistry(snap.initialize_services(yaml_config))
+    datastore_registry = DatastoreRegistry(initialize_datastores(yaml_config, service_object_registry))
+    
+    available_ingest_targets = load_ingest_targets(yaml_config, datastore_registry)
+    ingest_target = available_ingest_targets.get(args['<ingest_target>'])
+    if not ingest_target:
+        raise Exception('''The ingest target "%s" specified on the command line does not refer to a valid target. 
+                Please check your command syntax or your config file.'''  
+                        % args['<ingest_target>'])
 
-    limit = -1
+    target_datastore = datastore_registry.lookup(ingest_target.datastore_name)
+    buffer = RecordBuffer(target_datastore)
+    
     if args.get('--limit') is not None:
         limit = int(args['--limit'])
     list_mode = False
     stream_input_mode = False
+    file_input_mode = False
 
     if args['--target'] == True and args['<datafile>'] is None:
+        stream_input_mode = True
         print('Streaming mode enabled.')
         record_count = 0
-        while True:
-            if record_count == limit:
-                break
-            raw_line = sys.stdin.readline()
-            line = raw_line.lstrip().rstrip()
-            if not len(line):
-                break            
-            record_count += 1
-            print('read record #%s from standard input.' % record_count)
+        with checkpoint(buffer, interval=ingest_target.checkpoint_interval):
+            while True:
+                if record_count == limit:
+                    break
+                raw_line = sys.stdin.readline()
+                line = raw_line.lstrip().rstrip()
+                if not len(line):
+                    break
+                buffer.write(line)
+                record_count += 1
 
-            default_record_store.write(line)
     elif args['<datafile>']:
+        file_input_mode = True
         input_file = args['<datafile>']
         print('File input mode enabled. Reading from input file %s...' % input_file)
         record_count = 0
-        with open(input_file) as f:
-            for line in file:
-                if record_count == limit:
-                    break
-                record_count += 1
+        with checkpoint(buffer, interval=ingest_target.checkpoint_interval):
+            with open(input_file) as f:
+                for line in f:
+                    if record_count == limit:
+                        break
+                    buffer.write(line)                    
+                    record_count += 1
 
 
 if __name__ == '__main__':
