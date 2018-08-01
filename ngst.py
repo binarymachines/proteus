@@ -2,7 +2,7 @@
 
 '''Usage:
             ngst --config <configfile> --target <ingest_target> [--datafile <datafile>] [--limit=<max_records>]           
-            ngst --config <configfile> --list-targets
+            ngst --config <configfile> --list (targets | datastores | globals)
 
    Options:            
             -i --interactive   Start up in interactive mode
@@ -26,8 +26,6 @@ from docopt import DocoptExit
 from snap import snap, common
 import datamap as dmap
 import yaml
-
-
 
 
 class DataStore(object):
@@ -169,16 +167,8 @@ def load_ingest_targets(yaml_config, datastore_registry):
     return targets
 
 
-def main(args):
-    print(common.jsonpretty(args))
-
-    config_filename = args['<configfile>']
-    yaml_config = common.read_config_file(config_filename)
-    service_object_registry = common.ServiceObjectRegistry(snap.initialize_services(yaml_config))
-    datastore_registry = DatastoreRegistry(initialize_datastores(yaml_config, service_object_registry))
-    
+def initialize_record_buffer(ingest_target, yaml_config, datastore_registry):
     available_ingest_targets = load_ingest_targets(yaml_config, datastore_registry)
-    ingest_target = available_ingest_targets.get(args['<ingest_target>'])
     if not ingest_target:
         raise Exception('''The ingest target "%s" specified on the command line does not refer to a valid target. 
                 Please check your command syntax or your config file.'''  
@@ -186,6 +176,15 @@ def main(args):
 
     target_datastore = datastore_registry.lookup(ingest_target.datastore_name)
     buffer = RecordBuffer(target_datastore)
+
+
+
+def main(args):
+    #print(common.jsonpretty(args))
+    config_filename = args['<configfile>']
+    yaml_config = common.read_config_file(config_filename)
+    service_object_registry = common.ServiceObjectRegistry(snap.initialize_services(yaml_config))
+    datastore_registry = DatastoreRegistry(initialize_datastores(yaml_config, service_object_registry))
     
     if args.get('--limit') is not None:
         limit = int(args['--limit'])
@@ -196,7 +195,9 @@ def main(args):
     if args['--target'] == True and args['<datafile>'] is None:
         stream_input_mode = True
         print('Streaming mode enabled.')
+        ingest_target = available_ingest_targets.get(args['<ingest_target>'])
         record_count = 0
+        buffer = initialize_record_buffer(ingest_target, yaml_config, datastore_registry)
         with checkpoint(buffer, interval=ingest_target.checkpoint_interval):
             while True:
                 if record_count == limit:
@@ -221,6 +222,20 @@ def main(args):
                     buffer.write(line)                    
                     record_count += 1
 
+    elif args['--list'] == True:        
+        if args['targets']:
+            for target in yaml_config['ingest_targets']:
+                print('::: Ingest target "%s": ' % target)
+                print(common.jsonpretty(yaml_config['ingest_targets'][target]))
+                        
+        if args['datastores']:
+            for dstore in yaml_config['datastores']:
+                print('::: Datastore alias "%s": ' % dstore)
+                print(common.jsonpretty(yaml_config['datastores'][dstore]))
+
+        if args['globals']:
+            print('::: Global settings:')
+            print(common.jsonpretty(yaml_config['globals']))
 
 if __name__ == '__main__':
     args = docopt.docopt(__doc__)
