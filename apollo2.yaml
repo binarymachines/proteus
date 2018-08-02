@@ -1,0 +1,141 @@
+
+globals:
+  project_home: $APOLLO_HOME
+  datasource_module: apollo_datasources
+  service_module: apollo_services
+
+
+sources:
+
+  apsrc:
+    class: ApolloLookupDatasource
+
+maps:
+
+  shortmap:
+    settings:
+        - name: use_default_identity_transform
+          value: True
+
+    lookup_source:
+        apsrc
+
+    fields:
+      - User-Code:
+          source: record
+          key: User-Code
+          
+    
+      - Username:
+          source: record
+          key: Username
+          
+    
+      - DummyEmail:
+          source: lookup          
+    
+
+  apmap:
+    settings:
+        - name: use_default_identity_transform
+          value: True
+
+    lookup_source: 
+      apsrc
+
+    fields:
+      - User-Code:
+          source: record
+          key: User-Code
+          
+    
+      - Username:
+          source: record
+          key: Username
+          
+    
+      - Email/UserID:
+          source: record
+          key: Email/UserID
+          
+    
+      - Account-Status:
+          source: record
+          key: Account-Status
+          
+    
+      - Appstore:
+          source: record
+          key: Appstore
+          
+    
+      - SKUs:
+          source: record
+          key: SKUs
+          
+    
+      - Stripe-ID:
+          source: record
+          key: Stripe-ID
+          
+    
+      - Amazon-User-ID:
+          source: record
+          key: Amazon-User-ID
+          
+    
+      - Signup-Date:
+          source: record
+          key: Signup-Date
+          
+    
+      - Billing-Initial-Start-Date:
+          source: record
+          key: Billing-Initial-Start-Date
+          
+    
+      - Billing-End-Date:
+          source: record
+          key: Billing-End-Date
+          
+    
+      - Country-Code:
+          source: record
+          key: Country-Code
+          
+    
+      - Password-Set:
+          source: record
+          key: Password-Set
+          
+    
+      - Last_Access_Country:
+          source: record
+          key: Last_Access_Country
+          
+    
+      - Last_Access_Time:
+          source: record
+          key: Last_Access_Time
+          
+    
+      - Receipts:
+          source: record
+          key: Receipts
+          
+    
+      - User-Hash:
+          source: record
+          key: User-Hash
+          
+
+      - coupon_code:
+          source: record
+          key: coupon_code
+          
+    
+      - promo_code:
+          source: record
+          key: promo_code
+          
+    
