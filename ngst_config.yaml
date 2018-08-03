@@ -16,6 +16,16 @@ datastores:
 
       - name: fail_if_not_found
         value: True
+        
+  elastic:
+    class: ESDatastore
+    init_params:
+      - name: hostname
+        value: 127.0.0.1
+
+      - name: port
+        value: 9200
+
 
 ingest_targets:
   test: 

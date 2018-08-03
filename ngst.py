@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 
 '''Usage:
-            ngst --config <configfile> --target <ingest_target> [--datafile <datafile>] [--limit=<max_records>]           
+            ngst --config <configfile> [-p] --target <ingest_target> [--datafile <datafile>] [--limit=<max_records>]           
             ngst --config <configfile> --list (targets | datastores | globals)
 
    Options:            
             -i --interactive   Start up in interactive mode
+            -p --preview       Display records to be ingested, but do not ingest
 '''
 
 #
@@ -67,7 +68,7 @@ class RecordBuffer(object):
         try:
             self.data.append(record) 
             if self.checkpoint_mgr:
-                self.checkpoint_mgr.register_write()          
+                self.checkpoint_mgr.register_write(**kwargs)          
         except Exception as err: 
             raise err
 
@@ -101,10 +102,10 @@ class checkpoint(ContextDecorator):
         self.outstanding_writes = 0
 
 
-    def register_write(self):
+    def register_write(self, **kwargs):
         self.increment_write_count()
         if self.writes_since_last_reset == self.interval:
-            self.record_buffer.flush()
+            self.record_buffer.flush(**kwargs)
             self.reset()
 
 
@@ -167,16 +168,19 @@ def load_ingest_targets(yaml_config, datastore_registry):
     return targets
 
 
-def initialize_record_buffer(ingest_target, yaml_config, datastore_registry):
-    available_ingest_targets = load_ingest_targets(yaml_config, datastore_registry)
-    if not ingest_target:
+def lookup_ingest_target_by_name(ingest_target_name, available_ingest_targets):
+    if not available_ingest_targets.get(ingest_target_name):
         raise Exception('''The ingest target "%s" specified on the command line does not refer to a valid target. 
                 Please check your command syntax or your config file.'''  
-                        % args['<ingest_target>'])
+                        % ingest_target_name)
 
+    return available_ingest_targets[ingest_target_name]
+
+
+def initialize_record_buffer(ingest_target, datastore_registry):
     target_datastore = datastore_registry.lookup(ingest_target.datastore_name)
     buffer = RecordBuffer(target_datastore)
-
+    return buffer
 
 
 def main(args):
@@ -185,6 +189,11 @@ def main(args):
     yaml_config = common.read_config_file(config_filename)
     service_object_registry = common.ServiceObjectRegistry(snap.initialize_services(yaml_config))
     datastore_registry = DatastoreRegistry(initialize_datastores(yaml_config, service_object_registry))
+
+    preview_mode = False
+    if args['--preview']:
+        preview_mode = True
+        print('Starting ngst in preview mode...')
     
     if args.get('--limit') is not None:
         limit = int(args['--limit'])
@@ -192,12 +201,17 @@ def main(args):
     stream_input_mode = False
     file_input_mode = False
 
+    available_ingest_targets = load_ingest_targets(yaml_config, datastore_registry)
+
     if args['--target'] == True and args['<datafile>'] is None:
         stream_input_mode = True
         print('Streaming mode enabled.')
-        ingest_target = available_ingest_targets.get(args['<ingest_target>'])
+
+        ingest_target_name = args['<ingest_target>']
+        ingest_target = lookup_ingest_target_by_name(ingest_target_name, available_ingest_targets)
+        buffer = initialize_record_buffer(ingest_target, datastore_registry)
+
         record_count = 0
-        buffer = initialize_record_buffer(ingest_target, yaml_config, datastore_registry)
         with checkpoint(buffer, interval=ingest_target.checkpoint_interval):
             while True:
                 if record_count == limit:
@@ -206,20 +220,31 @@ def main(args):
                 line = raw_line.lstrip().rstrip()
                 if not len(line):
                     break
-                buffer.write(line)
+                if not preview_mode:
+                    buffer.write(line)
+                else:
+                    print(line)
                 record_count += 1
 
     elif args['<datafile>']:
         file_input_mode = True
         input_file = args['<datafile>']
         print('File input mode enabled. Reading from input file %s...' % input_file)
+
+        ingest_target_name = args['<ingest_target>']
+        ingest_target = lookup_ingest_target_by_name(ingest_target_name, available_ingest_targets)
+        buffer = initialize_record_buffer(ingest_target, datastore_registry)
+
         record_count = 0
         with checkpoint(buffer, interval=ingest_target.checkpoint_interval):
             with open(input_file) as f:
                 for line in f:
                     if record_count == limit:
                         break
-                    buffer.write(line)                    
+                    if not preview_mode:
+                        buffer.write(line)
+                    else:
+                        print(line)
                     record_count += 1
 
     elif args['--list'] == True:        
@@ -236,6 +261,7 @@ def main(args):
         if args['globals']:
             print('::: Global settings:')
             print(common.jsonpretty(yaml_config['globals']))
+
 
 if __name__ == '__main__':
     args = docopt.docopt(__doc__)
