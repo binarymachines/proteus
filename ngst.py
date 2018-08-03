@@ -195,6 +195,7 @@ def main(args):
         preview_mode = True
         print('Starting ngst in preview mode...')
     
+    limit = -1
     if args.get('--limit') is not None:
         limit = int(args['--limit'])
     list_mode = False

@@ -32,3 +32,7 @@ ingest_targets:
     datastore: fileds
     checkpoint_interval: 1
 
+  es_test:
+    datastore: elastic
+    checkpoint_interval: 1
+    

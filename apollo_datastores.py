@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+import uuid
+import json
 from collections import namedtuple
 from snap import common
 from ngst import DataStore
@@ -32,6 +34,10 @@ class ESDatastore(object):
         port = int(kwargs.get('port', 9200))
         self.esclient = Elasticsearch([{'host': hostname, 'port': port}])
         self.index = kwargs.get('index')
+
+
+    def generate_doc_id(self):
+        return uuid.uuid4()
 
 
     def write(self, recordset, **kwargs):
