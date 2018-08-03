@@ -1,15 +1,16 @@
 #!/usr/bin/env python
 
 '''Usage:
-            exfile --transform_cfg <configfile> --map <map_name>  <datafile> [--limit <max_records>]           
-            exfile -i
+            xfile --transform_cfg <configfile> --map <map_name>  <datafile> [--limit <max_records>]
+            xfile --transform_cfg <configfile> --list (sources | maps | globals)          
+            xfile -i
 
    Options:            
             -i --interactive   Start up in interactive mode
 '''
 
 #
-# exfile: command line utility for extracting and transforming CSV data
+# xfile: command line utility for extracting and transforming CSV data
 #
 
 
@@ -84,19 +85,25 @@ def main(args):
     logging.basicConfig(filename='exfile.log', level=logging.DEBUG)
 
     transform_mode = False
+    list_mode = False
     interactive_mode = False
     limit = -1
 
-    if args.get('--transform_cfg') == True:
+    if args.get('--transform_cfg') == True and not args.get('--list'):
         transform_mode = True
     if args.get('--interactive') == True:
         interactive_mode = True
     if args.get('--limit') == True:
         limit = int(args['<max_records>'])
+    if args.get('--list') == True:
+        list_mode = True
     
+    transform_config_file = args.get('<configfile>')
+    yaml_config = common.read_config_file(transform_config_file)
+
     if transform_mode:
         delimiter_char = '\t'
-        transform_config_file = args.get('<configfile>')
+        
         transform_map = args.get('<map_name>')
         datafile = args.get('<datafile>')            
         xformer = build_transformer(transform_config_file, transform_map)
@@ -110,6 +117,21 @@ def main(args):
                 output_record = xformer.transform(row)
                 print(json.dumps(output_record))
                 record_count += 1
+
+    elif list_mode:
+        if args['sources']:
+            for source in yaml_config['sources']:
+                print('::: Lookup datasource "%s": ' % source)
+                print(common.jsonpretty(yaml_config['sources'][source]))
+
+        if args['maps']:
+            for map in yaml_config['maps']:
+                print('::: Transform map "%s":' % map)
+                print(common.jsonpretty(yaml_config['maps'][map]))
+
+        if args['globals']:
+            print('::: Global settings:')
+            print(common.jsonpretty(yaml_config['globals']))
 
     elif interactive_mode:
         print('placeholder for interactive mode')
