@@ -26,6 +26,12 @@ datastores:
       - name: port
         value: 9200
 
+      - name: index
+        value: test2
+
+      - name: doctype
+        value: cisco_record
+
 
 ingest_targets:
   test: 
@@ -35,4 +41,4 @@ ingest_targets:
   es_test:
     datastore: elastic
     checkpoint_interval: 1
-    
+

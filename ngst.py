@@ -193,7 +193,6 @@ def main(args):
     preview_mode = False
     if args['--preview']:
         preview_mode = True
-        print('Starting ngst in preview mode...')
     
     limit = -1
     if args.get('--limit') is not None:
@@ -206,8 +205,6 @@ def main(args):
 
     if args['--target'] == True and args['<datafile>'] is None:
         stream_input_mode = True
-        print('Streaming mode enabled.')
-
         ingest_target_name = args['<ingest_target>']
         ingest_target = lookup_ingest_target_by_name(ingest_target_name, available_ingest_targets)
         buffer = initialize_record_buffer(ingest_target, datastore_registry)
@@ -229,9 +226,7 @@ def main(args):
 
     elif args['<datafile>']:
         file_input_mode = True
-        input_file = args['<datafile>']
-        print('File input mode enabled. Reading from input file %s...' % input_file)
-
+        input_file = args['<datafile>']        
         ingest_target_name = args['<ingest_target>']
         ingest_target = lookup_ingest_target_by_name(ingest_target_name, available_ingest_targets)
         buffer = initialize_record_buffer(ingest_target, datastore_registry)

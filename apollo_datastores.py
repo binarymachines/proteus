@@ -34,6 +34,7 @@ class ESDatastore(object):
         port = int(kwargs.get('port', 9200))
         self.esclient = Elasticsearch([{'host': hostname, 'port': port}])
         self.index = kwargs.get('index')
+        self.doctype = kwargs.get('doctype')
 
 
     def generate_doc_id(self):
@@ -42,7 +43,7 @@ class ESDatastore(object):
 
     def write(self, recordset, **kwargs):
         for record in recordset:
-            self.esclient.index(index='test',
-                                doc_type='cisco_record',
+            self.esclient.index(index=self.index,
+                                doc_type=self.doctype,
                                 id=self.generate_doc_id(),
                                 body=json.loads(record))
